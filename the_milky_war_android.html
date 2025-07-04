@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>The Milky War</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <style>
+    body {
+      margin: 0;
+      background: url('Background game play.png') center center no-repeat;
+      background-size: cover;
+      overflow: hidden;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      color: #fff;
+    }
+    #gameCanvas {
+      display: block;
+      margin: 0 auto;
+      background: radial-gradient(ellipse at center, #222 0%, #000 100%);
+      box-shadow: 0 0 40px #0ff8, 0 0 80px #00f4;
+      border: 2px solid #fff2;
+      background-color: rgba(0,0,0,0.7);
+      width: 100vw;
+      max-width: 480px;
+      height: auto;
+      max-height: 700px;
+      touch-action: none;
+    }
+    #ui { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 10; text-align: center; width: 100vw; pointer-events: none; }
+    #score, #level, #bossHp { font-size: 1.2em; margin: 0 10px; background: rgba(0,0,0,0.5); padding: 4px 12px; border-radius: 8px; display: inline-block; }
+    #gameOver, #stageClear { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); font-size: 2.2em; background: rgba(0,0,0,0.8); padding: 30px 50px; border-radius: 20px; display: none; z-index: 20; }
+    #restartBtn { margin-top: 20px; font-size: 1em; padding: 10px 30px; border-radius: 8px; border: none; background: #0ff; color: #000; font-weight: bold; cursor: pointer; box-shadow: 0 2px 8px #0ff8; }
+    #fullscreenBtn { position:absolute;top:10px;right:10px;z-index:20;font-size:1em;padding:8px 18px;border-radius:8px;border:none;background:#0ff;color:#000;font-weight:bold;box-shadow:0 2px 8px #0ff8;display:none; }
+    #touchControls { position:absolute;bottom:30px;left:50%;transform:translateX(-50%);z-index:30;display:none; }
+    #touchControls button { width:60px;height:60px;margin:0 10px;border-radius:50%;border:none;font-size:2em;box-shadow:0 2px 8px #0ff8; }
+    #leftBtn, #rightBtn { background:#0ff8;color:#000; }
+    #fireBtn { background:#f08;color:#fff; }
+    @media (max-width: 600px) {
+      #gameCanvas { max-width: 100vw; }
+    }
+  </style>
+</head>
+<body>
+  <div id="ui" style="display:none">
+    <span id="score">Poin: 0</span>
+    <span id="level">Level: Merkurius</span>
+    <span id="bossHp"></span>
+  </div>
+  <canvas id="gameCanvas" width="480" height="700"></canvas>
+  <button id="fullscreenBtn">Fullscreen</button>
+  <div id="touchControls">
+    <button id="leftBtn">⯇</button>
+    <button id="fireBtn">⦿</button>
+    <button id="rightBtn">⯈</button>
+  </div>
+  <div id="gameOver">
+    <div id="gameOverText"></div>
+    <button id="restartBtn">Main Lagi</button>
+  </div>
+  <div id="stageClear">
+    <div id="stageClearText"></div>
+    <button id="restartBtn2">Lanjut Level</button>
+  </div>
+  <!-- Musik opening -->
+  <audio id="openingMusic" src="game-music-loop-4-144341.mp3" loop></audio>
+  <script>
+    // --- Load Images ---
+    const imgPlayer = new Image();
+    imgPlayer.src = "Pesawat kita.png";
+    const imgEnemy = new Image();
+    imgEnemy.src = "Pesawat musuh.png";
+    const imgBoss = new Image();
+    imgBoss.src = "Raja.png";
+    const imgCover = new Image();
+    imgCover.src = "Cover game.png";
+
+    // --- Load Cover Stage Images ---
+    const stageCovers = [
+      "Cover stage 1 Merkurisu.png",
+      "Cover stage 2 Venus.png",
+      "Cover stage 3 Bumi.png",
+      "Cover stage 4 Mars.png",
+      "Cover stage 5 Jupiter.png",
+      "cover stage 6 saturnus.png",
+      "Cover stage 7 Uranus.png",
+      "Cover stage 8 Matahari.png"
+    ];
+    const imgStageCovers = stageCovers.map(src => {
+      const img = new Image();
+      img.src = src;
+      return img;
+    });
+
+    // --- Load Sound Effects ---
+    const sndShoot = new Audio('Senjata pesawat kita.mp3');
+    const sndEnemyExplosion = new Audio('Ledakan pesawat musuh.mp3');
+    const sndBossExplosion = new Audio('Ledakan Raja dan ledakan pesawat kita.mp3');
+    const sndPlayerExplosion = new Audio('Ledakan Raja dan ledakan pesawat kita.mp3');
+    const sndGameOver = new Audio('Game over.mp3');
+
+    sndShoot.volume = 0.3;
+    sndEnemyExplosion.volume = 0.5;
+    sndBossExplosion.volume = 0.7;
+    sndPlayerExplosion.volume = 0.7;
+    sndGameOver.volume = 0.6;
+
+    // --- Musik Opening ---
+    const openingMusic = document.getElementById('openingMusic');
+    function playOpeningMusic() {
+      openingMusic.pause();
+      openingMusic.currentTime = 0;
+      openingMusic.volume = 0.7;
+      openingMusic.play().catch(()=>{});
+    }
+    function stopOpeningMusic() {
+      openingMusic.pause();
+      openingMusic.currentTime = 0;
+    }
+
+    // --- Cover State ---
+    let coverState = true;
+
+    // Musik langsung main saat halaman dimuat, fallback sentuh untuk Android
+    window.addEventListener('DOMContentLoaded', () => {
+      playOpeningMusic();
+      canvas.addEventListener('touchstart', playOpeningMusic, { once: true });
+    });
+
+    // --- Touch & Fullscreen Controls ---
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    const touchControls = document.getElementById('touchControls');
+    const leftBtn = document.getElementById('leftBtn');
+    const rightBtn = document.getElementById('rightBtn');
+    const fireBtn = document.getElementById('fireBtn');
+
+    function showTouchControls() {
+      touchControls.style.display = "block";
+      fullscreenBtn.style.display = "block";
+    }
+
+    // Deteksi jika di Android/mobile
+    if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) {
+      showTouchControls();
+    }
+
+    fullscreenBtn.onclick = () => {
+      if (canvas.requestFullscreen) canvas.requestFullscreen();
+      else if (canvas.webkitRequestFullscreen) canvas.webkitRequestFullscreen();
+      else if (canvas.msRequestFullscreen) canvas.msRequestFullscreen();
+    };
+
+    leftBtn.ontouchstart = () => { keys['ArrowLeft'] = true; };
+    leftBtn.ontouchend = () => { keys['ArrowLeft'] = false; };
+    rightBtn.ontouchstart = () => { keys['ArrowRight'] = true; };
+    rightBtn.ontouchend = () => { keys['ArrowRight'] = false; };
+    fireBtn.ontouchstart = () => { keys[' '] = true; };
+    fireBtn.ontouchend = () => { keys[' '] = false; };
+
+    // --- Responsif ---
+    const canvas = document.getElementById('gameCanvas');
+    function resizeCanvas() {
+      let ratio = 480/700;
+      let w = window.innerWidth;
+      let h = window.innerHeight;
+      if (w/h > ratio) w = h * ratio;
+      else h = w / ratio;
+      canvas.style.width = w + "px";
+      canvas.style.height = h + "px";
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // --- Sisa kode game ---
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const levelEl = document.getElementById('level');
+    const bossHpEl = document.getElementById('bossHp');
+    const gameOverDiv = document.getElementById('gameOver');
+    const gameOverText = document.getElementById('gameOverText');
+    const restartBtn = document.getElementById('restartBtn');
+    const stageClearDiv = document.getElementById('stageClear');
+    const stageClearText = document.getElementById('stageClearText');
+    const restartBtn2 = document.getElementById('restartBtn2');
+
+    const levels = [
+      { name: "Merkurius", bossHp: 40, enemySpeed: 1.2, bossSpeed: 1.5, enemyFire: 0.003 },
+      { name: "Venus", bossHp: 60, enemySpeed: 1.4, bossSpeed: 1.7, enemyFire: 0.004 },
+      { name: "Bumi", bossHp: 80, enemySpeed: 1.6, bossSpeed: 1.9, enemyFire: 0.005 },
+      { name: "Mars", bossHp: 100, enemySpeed: 1.8, bossSpeed: 2.1, enemyFire: 0.006 },
+      { name: "Jupiter", bossHp: 130, enemySpeed: 2.0, bossSpeed: 2.3, enemyFire: 0.007 },
+      { name: "Saturnus", bossHp: 170, enemySpeed: 2.2, bossSpeed: 2.5, enemyFire: 0.008 },
+      { name: "Uranus", bossHp: 220, enemySpeed: 2.4, bossSpeed: 2.7, enemyFire: 0.009 },
+      { name: "Matahari", bossHp: 300, enemySpeed: 2.7, bossSpeed: 3.0, enemyFire: 0.011 }
+    ];
+
+    let player, enemies, bullets, enemyBullets, boss, score, level, gameState, keys, bossActive, bossExplodeFrame;
+    let explosions = [];
+    let stageStartTime = 0;
+    let bossCanAppear = false;
+    let enemySpawnTimer = 0;
+
+    // --- Bintang Latar ---
+    const stars = [];
+    for (let i = 0; i < 80; i++) {
+      stars.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        r: Math.random() * 1.5 + 0.5,
+        s: Math.random() * 0.7 + 0.2
+      });
+    }
+
+    // --- COVER STATE ---
+    imgCover.onload = function() { drawCover(); }
+    function drawCover() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(imgCover, 0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.font = "bold 38px Arial";
+      ctx.fillStyle = "#fff";
+      ctx.textAlign = "center";
+      ctx.shadowColor = "#000";
+      ctx.shadowBlur = 8;
+      ctx.fillText("The Milky War", canvas.width/2, 80);
+      ctx.restore();
+      ctx.save();
+      ctx.font = "bold 32px Arial";
+      ctx.fillStyle = "#0ff";
+      ctx.textAlign = "center";
+      ctx.shadowColor = "#000";
+      ctx.shadowBlur = 8;
+      if (Math.floor(Date.now()/500)%2 === 0) {
+        ctx.fillText("Press Start", canvas.width/2, canvas.height/2 + 120);
+      }
+      ctx.restore();
+      ctx.save();
+      ctx.font = "italic 18px Arial";
+      ctx.fillStyle = "#fff";
+      ctx.textAlign = "right";
+      ctx.shadowColor = "#000";
+      ctx.shadowBlur = 6;
+      ctx.fillText("create by dr. Ramadhan", canvas.width-18, canvas.height-18);
+      ctx.restore();
+      if (coverState) requestAnimationFrame(drawCover);
+    }
+
+    // --- STAGE COVER STATE ---
+    let showStageCover = false;
+    let currentStageCover = 0;
+    let stageCoverCallback = null;
+
+    function showStageCoverScreen(stageIndex, callback) {
+      showStageCover = true;
+      currentStageCover = stageIndex;
+      stageCoverCallback = callback;
+      drawStageCover();
+    }
+    function drawStageCover() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(imgStageCovers[currentStageCover], 0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.font = "bold 36px Arial";
+      ctx.fillStyle = "#fff";
+      ctx.textAlign = "center";
+      ctx.shadowColor = "#000";
+      ctx.shadowBlur = 8;
+      ctx.fillText(`Stage ${currentStageCover+1}: ${levels[currentStageCover].name}`, canvas.width/2, 90);
+      ctx.restore();
+      ctx.save();
+      ctx.font = "bold 30px Arial";
+      ctx.fillStyle = "#0ff";
+      ctx.textAlign = "center";
+      ctx.shadowColor = "#000";
+      ctx.shadowBlur = 8;
+      if (Math.floor(Date.now()/500)%2 === 0) {
+        ctx.fillText("Press to continue", canvas.width/2, canvas.height/2 + 120);
+      }
+      ctx.restore();
+      if (showStageCover) requestAnimationFrame(drawStageCover);
+    }
+    function continueFromStageCover() {
+      if (showStageCover) {
+        showStageCover = false;
+        if (stageCoverCallback) stageCoverCallback();
+      }
+    }
+    window.addEventListener('keydown', continueFromStageCover);
+    canvas.addEventListener('mousedown', continueFromStageCover);
+    canvas.addEventListener('touchstart', continueFromStageCover);
+
+    function startGame() {
+      coverState = false;
+      stopOpeningMusic();
+      document.getElementById('ui').style.display = "";
+      showStageCoverScreen(0, () => {
+        resetGame();
+        gameLoop();
+      });
+    }
+
+    function resetGame(nextLevel = false) {
+      player = {
+        x: canvas.width / 2 - 22,
+        y: canvas.height - 70,
+        w: 44,
+        h: 44,
+        speed: 5,
+        cooldown: 0,
+        alive: true
+      };
+      bullets = [];
+      enemyBullets = [];
+      enemies = [];
+      boss = null;
+      bossActive = false;
+      bossExplodeFrame = 0;
+      explosions = [];
+      score = nextLevel ? score : 0;
+      level = nextLevel ? level + 1 : 0;
+      keys = {};
+      gameState = "playing";
+      bossCanAppear = false;
+      stageStartTime = Date.now();
+      enemySpawnTimer = 0;
+      updateUI();
+      gameOverDiv.style.display = "none";
+      stageClearDiv.style.display = "none";
+    }
+
+    function spawnEnemy() {
+      let type = Math.random();
+      let enemyType = 1;
+      if (type < 0.6) enemyType = 1;
+      else if (type < 0.85) enemyType = 2;
+      else enemyType = 3;
+      let x = 30 + Math.random() * (canvas.width - 60);
+      let y = -44;
+      enemies.push({
+        x, y,
+        w: 44,
+        h: 44,
+        type: enemyType,
+        hp: enemyType === 1 ? 1 : (enemyType === 2 ? 3 : 2 + level),
+        speed: levels[level].enemySpeed + (enemyType-1)*0.3 + Math.random()*0.2,
+        fireRate: levels[level].enemyFire + (enemyType-1)*0.002,
+        cooldown: Math.random()*100
+      });
+    }
+
+    function spawnBoss() {
+      boss = {
+        x: canvas.width/2 - 60,
+        y: 40,
+        w: 120,
+        h: 80,
+        hp: levels[level].bossHp,
+        maxHp: levels[level].bossHp,
+        speed: levels[level].bossSpeed,
+        dir: 1,
+        cooldown: 0
+      };
+      bossActive = true;
+    }
+
+    function drawPlayer() {
+      ctx.save();
+      ctx.drawImage(imgPlayer, player.x, player.y, player.w, player.h);
+      drawFire(ctx, player.x + player.w/2 - 8, player.y + player.h - 2, 16, 18, Date.now());
+      ctx.restore();
+    }
+
+    function drawEnemy(e) {
+      ctx.save();
+      ctx.drawImage(imgEnemy, e.x, e.y, e.w, e.h);
+      ctx.restore();
+    }
+
+    function drawBoss(b) {
+      ctx.save();
+      ctx.drawImage(imgBoss, b.x, b.y, b.w, b.h);
+      drawFire(ctx, b.x + b.w/2 - 18, b.y + b.h - 4, 36, 28, Date.now());
+      ctx.restore();
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(b.x, b.y-16, b.w, 8);
+      ctx.fillStyle = "#f0f";
+      ctx.fillRect(b.x, b.y-16, b.w * (b.hp/b.maxHp), 8);
+      ctx.strokeStyle = "#000";
+      ctx.strokeRect(b.x, b.y-16, b.w, 8);
+    }
+
+    function drawBullet(b, isEnemy) {
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.fillStyle = isEnemy ? "#f00" : "#0ff";
+      ctx.beginPath();
+      ctx.arc(0, 0, 4, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawStars() {
+      ctx.save();
+      for (let s of stars) {
+        ctx.globalAlpha = 0.7 + Math.sin(Date.now()/400 + s.x)*0.3;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+        ctx.fillStyle = "#fff";
+        ctx.fill();
+        s.y += s.s;
+        if (s.y > canvas.height) s.y = 0;
+      }
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
+    function playSound(sound) {
+      try {
+        sound.currentTime = 0;
+        sound.play().catch(e => {});
+      } catch (e) {}
+    }
+
+    function drawExplosion(ctx, x, y, frame) {
+      ctx.save();
+      ctx.globalAlpha = 1 - frame/15;
+      ctx.beginPath();
+      ctx.arc(x, y, 10 + frame*3, 0, Math.PI*2);
+      ctx.fillStyle = "#ff0";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x, y, 5 + frame*2, 0, Math.PI*2);
+      ctx.fillStyle = "#f00";
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawFire(ctx, x, y, w, h, t) {
+      ctx.save();
+      ctx.globalAlpha = 0.7 + 0.3*Math.sin(t/100);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + w/2, y + h + Math.random()*8);
+      ctx.lineTo(x + w, y);
+      ctx.closePath();
+      ctx.fillStyle = "orange";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x + w*0.25, y);
+      ctx.lineTo(x + w/2, y + h*0.7 + Math.random()*6);
+      ctx.lineTo(x + w*0.75, y);
+      ctx.closePath();
+      ctx.fillStyle = "yellow";
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function gameLoop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawStars();
+
+      if (gameState === "playing") {
+        if (keys['ArrowLeft'] || keys['a']) player.x -= player.speed;
+        if (keys['ArrowRight'] || keys['d']) player.x += player.speed;
+        player.x = Math.max(0, Math.min(canvas.width - player.w, player.x));
+        if (player.cooldown > 0) player.cooldown--;
+
+        if ((keys[' '] || keys['Space']) && player.cooldown === 0) {
+          bullets.push({x: player.x + player.w/2, y: player.y, vy: -7});
+          player.cooldown = 12;
+          playSound(sndShoot);
+        }
+
+        for (let b of bullets) b.y += b.vy;
+        bullets = bullets.filter(b => b.y > -10);
+
+        for (let b of enemyBullets) b.y += b.vy;
+        enemyBullets = enemyBullets.filter(b => b.y < canvas.height + 10);
+
+        for (let e of enemies) {
+          e.y += e.speed;
+          e.cooldown--;
+          if (e.cooldown <= 0 && Math.random() < e.fireRate) {
+            enemyBullets.push({x: e.x + e.w/2, y: e.y + e.h, vy: 3 + level*0.2});
+            e.cooldown = 60 + Math.random()*60;
+          }
+        }
+        enemies = enemies.filter(e => e.y < canvas.height + 40 && e.hp > 0);
+
+        for (let b of bullets) {
+          for (let e of enemies) {
+            if (b.x > e.x && b.x < e.x+e.w && b.y > e.y && b.y < e.y+e.h && e.hp > 0) {
+              e.hp--;
+              b.y = -100;
+              explosions.push({x: e.x+e.w/2, y: e.y+e.h/2, frame: 0});
+              if (e.hp <= 0) {
+                score += 10;
+                playSound(sndEnemyExplosion);
+              }
+            }
+          }
+          if (bossActive && boss && b.x > boss.x && b.x < boss.x+boss.w && b.y > boss.y && b.y < boss.y+boss.h && boss.hp > 0) {
+            boss.hp--;
+            b.y = -100;
+            explosions.push({x: b.x, y: b.y, frame: 0});
+            if (boss.hp <= 0) {
+              bossExplodeFrame = 1;
+              score += 100;
+              playSound(sndBossExplosion);
+            }
+          }
+        }
+
+        for (let b of enemyBullets) {
+          if (b.x > player.x && b.x < player.x+player.w && b.y > player.y && b.y < player.y+player.h) {
+            player.alive = false;
+            explosions.push({x: player.x+player.w/2, y: player.y+player.h/2, frame: 0});
+            playSound(sndPlayerExplosion);
+          }
+        }
+
+        for (let e of enemies) {
+          if (e.x < player.x+player.w && e.x+e.w > player.x && e.y < player.y+player.h && e.y+e.h > player.y) {
+            player.alive = false;
+            explosions.push({x: player.x+player.w/2, y: player.y+player.h/2, frame: 0});
+            playSound(sndPlayerExplosion);
+          }
+        }
+        if (bossActive && boss && boss.hp > 0 && boss.x < player.x+player.w && boss.x+boss.w > player.x && boss.y < player.y+player.h && boss.y+boss.h > player.y) {
+          player.alive = false;
+          explosions.push({x: player.x+player.w/2, y: player.y+player.h/2, frame: 0});
+          playSound(sndPlayerExplosion);
+        }
+
+        if (player.alive) drawPlayer();
+        for (let e of enemies) if (e.hp > 0) drawEnemy(e);
+
+        if (bossActive && boss) {
+          if (boss.hp > 0) {
+            boss.x += boss.speed * boss.dir;
+            if (boss.x < 10 || boss.x + boss.w > canvas.width - 10) boss.dir *= -1;
+            boss.cooldown--;
+            if (boss.cooldown <= 0) {
+              for (let i = -1; i <= 1; i++) {
+                enemyBullets.push({x: boss.x + boss.w/2 + i*30, y: boss.y + boss.h, vy: 4 + level*0.2});
+              }
+              boss.cooldown = 40 - level*2 + Math.random()*30;
+            }
+            drawBoss(boss);
+            bossHpEl.textContent = `Boss: ${boss.hp} / ${boss.maxHp}`;
+          } else if (bossExplodeFrame > 0 && bossExplodeFrame < 40) {
+            drawExplosion(ctx, boss.x+boss.w/2, boss.y+boss.h/2, bossExplodeFrame);
+            bossExplodeFrame++;
+            if (bossExplodeFrame === 40) {
+              bossActive = false;
+              setTimeout(() => {
+                if (level < levels.length-1) {
+                  stageClearText.innerHTML = `Stage <b>${levels[level].name}</b> Selesai!<br>Poin: ${score}`;
+                  stageClearDiv.style.display = "block";
+                  gameState = "stageclear";
+                } else {
+                  gameOverText.innerHTML = `Selamat! Kamu menaklukkan Matahari!<br>Total Poin: <b>${score}</b>`;
+                  gameOverDiv.style.display = "block";
+                  gameState = "gameover";
+                  playOpeningMusic(); // Musik opening saat game over
+                }
+              }, 800);
+            }
+          }
+        } else {
+          bossHpEl.textContent = "";
+        }
+
+        for (let b of bullets) drawBullet(b, false);
+        for (let b of enemyBullets) drawBullet(b, true);
+
+        for (let i = explosions.length-1; i >= 0; i--) {
+          drawExplosion(ctx, explosions[i].x, explosions[i].y, explosions[i].frame);
+          explosions[i].frame++;
+          if (explosions[i].frame > 15) explosions.splice(i, 1);
+        }
+
+        if (!player.alive) {
+          gameOverText.innerHTML = `Game Over!<br>Poin: <b>${score}</b>`;
+          gameOverDiv.style.display = "block";
+          gameState = "gameover";
+          playSound(sndGameOver);
+          playOpeningMusic(); // Musik opening saat game over
+        }
+
+        let elapsed = (Date.now() - stageStartTime) / 1000;
+        if (elapsed > 60) bossCanAppear = true;
+
+        if (!bossActive && bossCanAppear) {
+          if (enemies.length > 0) enemies = [];
+          spawnBoss();
+        }
+
+        if (!bossCanAppear) {
+          enemySpawnTimer--;
+          if (enemySpawnTimer <= 0) {
+            spawnEnemy();
+            enemySpawnTimer = 18 + Math.random()*12 - level*2;
+            if (enemySpawnTimer < 6) enemySpawnTimer = 6;
+          }
+        }
+
+        updateUI();
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    function updateUI() {
+      scoreEl.textContent = `Poin: ${score}`;
+      levelEl.textContent = `Level: ${levels[level].name}`;
+    }
+
+    window.addEventListener('keydown', e => {
+      if (coverState) {
+        stopOpeningMusic();
+        coverState = false;
+        document.getElementById('ui').style.display = "";
+        showStageCoverScreen(0, () => {
+          resetGame();
+          gameLoop();
+        });
+        return;
+      }
+      keys[e.key] = true;
+    });
+    window.addEventListener('keyup', e => {
+      keys[e.key] = false;
+    });
+    canvas.addEventListener('mousedown', function() {
+      if (coverState) {
+        stopOpeningMusic();
+        coverState = false;
+        document.getElementById('ui').style.display = "";
+        showStageCoverScreen(0, () => {
+          resetGame();
+          gameLoop();
+        });
+      }
+    });
+    canvas.addEventListener('touchstart', function() {
+      if (coverState) {
+        stopOpeningMusic();
+        coverState = false;
+        document.getElementById('ui').style.display = "";
+        showStageCoverScreen(0, () => {
+          resetGame();
+          gameLoop();
+        });
+      }
+    });
+
+    // --- Restart Button ---
+    restartBtn.onclick = () => {
+      stopOpeningMusic();
+      showStageCoverScreen(0, () => {
+        resetGame();
+      });
+    };
+    restartBtn2.onclick = () => {
+      stopOpeningMusic();
+      showStageCoverScreen(level+1, () => {
+        resetGame(true);
+      });
+    };
+
+    drawCover();
+  </script>
+</body>
+</html>
